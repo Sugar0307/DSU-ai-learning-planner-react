@@ -1,38 +1,377 @@
-.App {
-  text-align: center;
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+body {
+  font-family: 'Malgun Gothic', '맑은 고딕', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: #f4f6f8;
+  color: #1f2328;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+.app-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
+/* 헤더 */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #1b365d;
+  color: #ffffff;
+  padding: 14px 20px;
+  border: 1px solid #132744;
+  margin-bottom: 16px;
+}
+
+.app-header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #d8e2ef;
+}
+
+.btn-reset-all {
+  background: transparent;
+  color: #ffffff;
+  border: 1px solid #6c88b0;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-reset-all:hover {
+  background-color: #274878;
+}
+
+/* 메인 그리드 */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1.65fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.left-col,
+.right-col {
   display: flex;
   flex-direction: column;
+  gap: 16px;
+}
+
+/* 공통 패널 */
+.panel {
+  background-color: #ffffff;
+  border: 1px solid #cfd7df;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
+  background-color: #f8f9fb;
+  border-bottom: 1px solid #cfd7df;
+  padding: 10px 14px;
+}
+
+.panel-header h2 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1b365d;
+}
+
+.panel-sub {
+  font-size: 11px;
+  color: #656d76;
+}
+
+.panel-body {
+  padding: 14px;
+}
+
+/* 주간 시간표 */
+.schedule-wrap {
+  overflow-x: auto;
+}
+
+.schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  min-width: 620px;
+}
+
+.schedule-table th,
+.schedule-table td {
+  border: 1px solid #d8dee4;
+  vertical-align: top;
+}
+
+.schedule-table th {
+  background-color: #f0f3f6;
+  padding: 7px 4px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  color: #24292f;
+}
+
+.schedule-table th.slot-col {
+  width: 66px;
+}
+
+.slot-label {
+  background-color: #f8f9fb;
+  text-align: center;
+  font-weight: 700;
+  font-size: 12px;
+  color: #1b365d;
+  padding: 10px 4px;
+  vertical-align: middle !important;
+}
+
+.schedule-cell {
+  width: 100%;
+  min-height: 76px;
+  border: none;
+  resize: vertical;
+  padding: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  color: #1f2328;
+  background: transparent;
+  display: block;
+}
+
+.schedule-cell:focus {
+  outline: 2px solid #1b365d;
+  outline-offset: -2px;
+  background-color: #f7faff;
+}
+
+/* AI 프롬프트 빌더 */
+.prompt-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.input-field,
+.select-field {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid #c5ced6;
+  font-family: inherit;
+  font-size: 12px;
+  color: #1f2328;
+  background-color: #ffffff;
+}
+
+.input-field:focus,
+.select-field:focus {
+  outline: 1px solid #1b365d;
+  border-color: #1b365d;
+}
+
+.mode-group {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 7px 8px;
+  border: 1px solid #c5ced6;
+  background-color: #f8f9fb;
+  color: #24292f;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mode-btn.active {
+  background-color: #1b365d;
+  color: #ffffff;
+  border-color: #1b365d;
+  font-weight: 700;
+}
+
+.prompt-preview {
+  width: 100%;
+  min-height: 110px;
+  padding: 10px;
+  border: 1px solid #cfd7df;
+  background-color: #f8f9fb;
+  font-family: inherit;
+  font-size: 12px;
+  color: #1f2328;
+  resize: vertical;
+  margin-bottom: 8px;
+}
+
+.btn-primary {
+  background-color: #1b365d;
+  color: #ffffff;
+  border: 1px solid #1b365d;
+  padding: 7px 14px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background-color: #142a4a;
+}
+
+.btn-secondary {
+  background-color: #ffffff;
+  color: #1f2328;
+  border: 1px solid #c5ced6;
+  padding: 7px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background-color: #f0f3f6;
+}
+
+/* 타이머 */
+.timer-display {
+  font-size: 36px;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 2px;
+  color: #1b365d;
+  padding: 12px 0;
+  border: 1px solid #e1e6eb;
+  background-color: #f8f9fb;
+  margin-bottom: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer-controls {
+  display: flex;
+  gap: 6px;
   justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  flex-wrap: wrap;
 }
 
-.App-link {
-  color: #61dafb;
+/* 과제 D-Day & 투두 */
+.todo-form {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
+.todo-form .input-title {
+  flex: 1;
+}
+
+.todo-form .input-date {
+  width: 130px;
+}
+
+.todo-list {
+  list-style: none;
+  border-top: 1px solid #e1e6eb;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid #e1e6eb;
+}
+
+.todo-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.todo-text {
+  word-break: break-all;
+}
+
+.todo-text.done {
+  text-decoration: line-through;
+  color: #8c959f;
+}
+
+.todo-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dday-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border: 1px solid #1b365d;
+  color: #1b365d;
+  background-color: #eef3f9;
+}
+
+.dday-badge.urgent {
+  border-color: #b42318;
+  color: #b42318;
+  background-color: #fef3f2;
+}
+
+.dday-badge.past {
+  border-color: #8c959f;
+  color: #656d76;
+  background-color: #f4f6f8;
+}
+
+.btn-del {
+  background: transparent;
+  border: 1px solid #d0d7de;
+  color: #656d76;
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.btn-del:hover {
+  border-color: #b42318;
+  color: #b42318;
+}
+
+.empty-msg {
+  text-align: center;
+  color: #8c959f;
+  padding: 16px 0;
+  font-size: 12px;
+}
+
+@media (max-width: 960px) {
+  .main-grid {
+    grid-template-columns: 1fr;
   }
 }
