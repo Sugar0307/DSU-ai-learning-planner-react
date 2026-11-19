@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/DSU-ai-learning-planner-react/static/css/main.354fac8a.css",
+    "main.js": "/DSU-ai-learning-planner-react/static/js/main.b849fe00.js",
+    "static/js/453.50a30682.chunk.js": "/DSU-ai-learning-planner-react/static/js/453.50a30682.chunk.js",
+    "index.html": "/DSU-ai-learning-planner-react/index.html",
+    "main.354fac8a.css.map": "/DSU-ai-learning-planner-react/static/css/main.354fac8a.css.map",
+    "main.b849fe00.js.map": "/DSU-ai-learning-planner-react/static/js/main.b849fe00.js.map",
+    "453.50a30682.chunk.js.map": "/DSU-ai-learning-planner-react/static/js/453.50a30682.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.354fac8a.css",
+    "static/js/main.b849fe00.js"
+  ]
+}
