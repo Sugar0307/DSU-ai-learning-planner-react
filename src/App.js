@@ -1,412 +1,887 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import './App.css';
+import {
+  PRICE_NOTICE,
+  CONSULTATION_CONFIG,
+  MAJOR_PROFILES,
+  GAMING_PRESETS,
+  DESKTOP_PARTS,
+  MAJOR_DESKTOP_PRESETS,
+  LAPTOP_LIST,
+} from './data/hardwareData';
+import {
+  formatKRW,
+  analyzeDesktopBuild,
+  evaluateLaptop,
+  buildInquiryTemplate,
+} from './utils/analyzer';
 
-const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
-const SLOTS = ['오전', '오후', '저녁'];
-
-const DEFAULT_SCHEDULE = {
-  '오전-월': '자료구조\n연결리스트·큐 복습',
-  '오전-화': '선형대수학\n행렬 연산 정리',
-  '오전-수': 'C언어\n포인터 개념 복습',
-  '오전-목': '파이썬\n자료형·함수 정리',
-  '오전-금': 'JS / React\nHooks 실습 복습',
-  '오전-토': '주간 전공 복습',
-  '오전-일': '부족한 단원 보충',
-  '오후-월': '전공 강의 수강',
-  '오후-화': '전공 강의 수강',
-  '오후-수': '전공 강의 수강',
-  '오후-목': '전공 강의 수강',
-  '오후-금': '전공 강의 수강',
-  '오후-토': '개인 프로젝트 개발',
-  '오후-일': '과제 마감 점검',
-  '저녁-월': 'React 실습 과제',
-  '저녁-화': '자료구조 구현 연습',
-  '저녁-수': '알고리즘 문제 풀이',
-  '저녁-목': 'RDBMS SQL 실습',
-  '저녁-금': '전공 서적 요약',
-  '저녁-토': '휴식 및 재충전',
-  '저녁-일': '다음 주 계획 수립',
-};
-
-const DEFAULT_TODOS = [
-  { id: 1, title: '자료구조 연결리스트 과제 제출', dueDate: '2026-11-25', done: false },
-  { id: 2, title: 'React 웹 플래너 배포 확인', dueDate: '2026-11-20', done: false },
+const PART_ROWS = [
+  { key: 'cpu', label: 'CPU' },
+  { key: 'cooler', label: 'CPU 쿨러' },
+  { key: 'mb', label: '메인보드' },
+  { key: 'ram', label: '메모리 (RAM)' },
+  { key: 'gpu', label: '그래픽카드 (GPU)' },
+  { key: 'ssd', label: '저장장치 (SSD)' },
+  { key: 'psu', label: '파워서플라이' },
+  { key: 'case', label: '케이스' },
 ];
 
-function loadStorage(key, fallback) {
-  try {
-    const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function getDDayInfo(dueDateStr) {
-  if (!dueDateStr) return { label: '상시', className: 'dday-badge' };
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const target = new Date(dueDateStr + 'T00:00:00');
-  const diff = Math.round((target - today) / (1000 * 60 * 60 * 24));
-
-  if (diff === 0) return { label: 'D-Day', className: 'dday-badge urgent' };
-  if (diff > 0) {
-    return {
-      label: `D-${diff}`,
-      className: diff <= 3 ? 'dday-badge urgent' : 'dday-badge',
-    };
-  }
-  return { label: `D+${Math.abs(diff)}`, className: 'dday-badge past' };
-}
-
 function App() {
-  // 1. 주간 시간표 상태
-  const [schedule, setSchedule] = useState(() =>
-    loadStorage('dsu_react_schedule', DEFAULT_SCHEDULE)
+  // 상단 탭 상태 ('desktop' | 'laptop' | 'compare')
+  const [activeTab, setActiveTab] = useState('desktop');
+
+  // 공통 조건 상태 (동서대 전공 프로필 + 게이밍 목표)
+  const [majorId, setMajorId] = useState('sw');
+  const [gamingId, setGamingId] = useState('casual-fhd');
+
+  // 데스크톱 부품 선택 및 사용자 커스텀 단가
+  const [selectedIds, setSelectedIds] = useState({
+    cpu: 'cpu-7500f',
+    cooler: 'cooler-single',
+    mb: 'mb-b650m',
+    ram: 'ram-32',
+    gpu: 'gpu-5060ti',
+    ssd: 'ssd-1tb',
+    psu: 'psu-600',
+    case: 'case-mesh',
+  });
+  const [customPrices, setCustomPrices] = useState({});
+
+  // 랩탑 필터 상태 (예산, 무게, 소음, OS)
+  const [maxBudget, setMaxBudget] = useState(3000000);
+  const [maxWeight, setMaxWeight] = useState(2.5);
+  const [quietOnly, setQuietOnly] = useState(false);
+  const [osFilter, setOsFilter] = useState('ALL');
+
+  // 비교함 상태 (최대 3개)
+  const [compareItems, setCompareItems] = useState([]);
+
+  // 1:1 견적 문의 모달 상태
+  const [consultOpen, setConsultOpen] = useState(false);
+  const [consultText, setConsultText] = useState('');
+
+  // 상태 안내 토스트 메시지
+  const [statusMsg, setStatusMsg] = useState('');
+
+  const showToast = (msg) => {
+    setStatusMsg(msg);
+    setTimeout(() => setStatusMsg(''), 2600);
+  };
+
+  const currentMajor = useMemo(
+    () => MAJOR_PROFILES.find((m) => m.id === majorId) || MAJOR_PROFILES[0],
+    [majorId]
   );
 
-  // 2. 과제/D-Day 상태
-  const [todos, setTodos] = useState(() =>
-    loadStorage('dsu_react_todos', DEFAULT_TODOS)
+  const currentGaming = useMemo(
+    () => GAMING_PRESETS.find((g) => g.id === gamingId) || GAMING_PRESETS[0],
+    [gamingId]
   );
-  const [todoTitle, setTodoTitle] = useState('');
-  const [todoDate, setTodoDate] = useState('');
 
-  // 3. 집중 타이머 상태
-  const [timerModeMin, setTimerModeMin] = useState(25);
-  const [secondsLeft, setSecondsLeft] = useState(25 * 60);
-  const [isRunning, setIsRunning] = useState(false);
+  // 선택된 부품 객체 매핑
+  const selectedParts = useMemo(() => {
+    const findPart = (key) =>
+      DESKTOP_PARTS[key].find((item) => item.id === selectedIds[key]) ||
+      DESKTOP_PARTS[key][0];
 
-  // 4. AI 학습 프롬프트 빌더 상태
-  const [subject, setSubject] = useState('자료구조');
-  const [topic, setTopic] = useState('이진 탐색 트리(BST)의 삽입과 삭제 시간복잡도');
-  const [promptMode, setPromptMode] = useState('summary');
-  const [copied, setCopied] = useState(false);
+    return {
+      cpu: findPart('cpu'),
+      cooler: findPart('cooler'),
+      mb: findPart('mb'),
+      ram: findPart('ram'),
+      gpu: findPart('gpu'),
+      ssd: findPart('ssd'),
+      psu: findPart('psu'),
+      caseItem: findPart('case'),
+    };
+  }, [selectedIds]);
 
-  // localStorage 자동 저장
-  useEffect(() => {
-    localStorage.setItem('dsu_react_schedule', JSON.stringify(schedule));
-  }, [schedule]);
+  // 데스크톱 분석 결과
+  const desktopAnalysis = useMemo(
+    () =>
+      analyzeDesktopBuild({
+        parts: selectedParts,
+        customPrices,
+        majorId,
+        gamingId,
+      }),
+    [selectedParts, customPrices, majorId, gamingId]
+  );
 
-  useEffect(() => {
-    localStorage.setItem('dsu_react_todos', JSON.stringify(todos));
-  }, [todos]);
+  // 현재 전공 + 게이밍 조건 기반 원클릭 추천 프리셋 적용
+  const applyRecommendedPreset = () => {
+    if (currentGaming.isInquiryOnly) {
+      openConsultModal('desktop');
+      return;
+    }
 
-  // 타이머 동작
-  useEffect(() => {
-    if (!isRunning) return;
-    const interval = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          setIsRunning(false);
-          alert('집중 학습 시간이 종료되었습니다!');
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isRunning]);
+    let basePreset;
+    if (currentGaming.defaultBuild) {
+      basePreset = { ...currentGaming.defaultBuild };
+      // 전공 최소 램이 32GB 이상이면 게이밍 프리셋에도 32GB 자동 반영
+      if (currentMajor.minRamGb >= 32) {
+        basePreset.ram = 'ram-32';
+      }
+    } else {
+      basePreset = { ...MAJOR_DESKTOP_PRESETS[currentMajor.desktopPresetId] };
+    }
 
-  const handleScheduleChange = (slot, day, value) => {
-    setSchedule((prev) => ({
+    setSelectedIds(basePreset);
+    setCustomPrices({});
+    showToast('선택한 전공·게이밍 조건에 맞는 추천 견적을 적용했습니다.');
+  };
+
+  // 부품 변경 핸들러
+  const handlePartChange = (key, newId) => {
+    setSelectedIds((prev) => ({ ...prev, [key]: newId }));
+    setCustomPrices((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  // 부품 단가 직접 수정 핸들러
+  const handleCustomPriceChange = (key, rawVal) => {
+    const cleaned = rawVal.replace(/[^0-9]/g, '');
+    setCustomPrices((prev) => ({
       ...prev,
-      [`${slot}-${day}`]: value,
+      [key]: cleaned === '' ? '' : Number(cleaned),
     }));
   };
 
-  const handleAddTodo = (e) => {
-    e.preventDefault();
-    if (!todoTitle.trim()) return;
-    setTodos((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        title: todoTitle.trim(),
-        dueDate: todoDate,
-        done: false,
-      },
-    ]);
-    setTodoTitle('');
-    setTodoDate('');
+  const resetCustomPrices = () => {
+    setCustomPrices({});
+    showToast('모든 부품 단가를 기준 평균가로 초기화했습니다.');
   };
 
-  const handleToggleTodo = (id) => {
-    setTodos((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item))
-    );
+  // 데스크톱 요약 문자열 생성
+  const getDesktopSummaryText = () => {
+    return `${selectedParts.cpu.name} / ${selectedParts.gpu.name} / ${selectedParts.ram.name} / ${selectedParts.ssd.name} / ${selectedParts.psu.name} (총 ${formatKRW(
+      desktopAnalysis.totalPrice
+    )})`;
   };
 
-  const handleDeleteTodo = (id) => {
-    setTodos((prev) => prev.filter((item) => item.id !== id));
+  // 데스크톱 상세 견적 텍스트 복사
+  const copyDesktopSpec = () => {
+    const lines = [
+      `[SpecMatch 데스크톱 견적서]`,
+      `전공 프로필: ${currentMajor.label}`,
+      `게이밍 목표: ${currentGaming.label}`,
+      `--------------------------------`,
+      ...PART_ROWS.map((row) => {
+        const partObj = row.key === 'case' ? selectedParts.caseItem : selectedParts[row.key];
+        const priceVal = customPrices[row.key] ?? partObj.price;
+        return `- ${row.label}: ${partObj.name} (${formatKRW(priceVal)})`;
+      }),
+      `--------------------------------`,
+      `총 예상 금액: ${formatKRW(desktopAnalysis.totalPrice)}`,
+      `예상 피크 전력: ${desktopAnalysis.estimatedWatt}W / 적합도 점수: ${desktopAnalysis.score}점`,
+      PRICE_NOTICE,
+    ];
+    navigator.clipboard?.writeText(lines.join('\n'));
+    showToast('데스크톱 견적 텍스트가 클립보드에 복사되었습니다.');
   };
 
-  const handleSetTimerPreset = (minutes) => {
-    setIsRunning(false);
-    setTimerModeMin(minutes);
-    setSecondsLeft(minutes * 60);
-  };
-
-  const formatTime = (sec) => {
-    const m = String(Math.floor(sec / 60)).padStart(2, '0');
-    const s = String(sec % 60).padStart(2, '0');
-    return `${m}:${s}`;
-  };
-
-  const buildPrompt = () => {
-    const subj = subject.trim() || '[과목명]';
-    const top = topic.trim() || '[학습 주제]';
-
-    if (promptMode === 'summary') {
-      return `너는 대학교 컴퓨터공학 전공 튜터야.\n[${subj}] 과목의 '${top}' 주제를 학부생 눈높이에 맞춰 핵심 개념, 동작 원리, 시험에 자주 나오는 포인트 3가지로 구조화해서 간결하게 요약해줘.`;
+  // 비교함 추가 (데스크톱)
+  const addDesktopToCompare = () => {
+    if (compareItems.length >= 3) {
+      showToast('비교함은 최대 3개까지 담을 수 있습니다.');
+      return;
     }
-    if (promptMode === 'quiz') {
-      return `너는 대학교 [${subj}] 과목 출제 교수야.\n'${top}' 주제에 대해 객관식 3문제와 단답형/서술형 2문제를 출제해줘. 정답과 해설은 내가 답을 제출한 뒤에 알려줘.`;
+    const newItem = {
+      uid: `dt-${Date.now()}`,
+      type: '데스크톱',
+      name: `${selectedParts.cpu.name.split(' ')[2] || selectedParts.cpu.name} + ${
+        selectedParts.gpu.id === 'gpu-none'
+          ? '내장그래픽'
+          : selectedParts.gpu.name.replace('NVIDIA GeForce ', '')
+      }`,
+      price: desktopAnalysis.totalPrice,
+      score: desktopAnalysis.score,
+      cpu: selectedParts.cpu.name,
+      gpu: selectedParts.gpu.name,
+      ramSsd: `RAM ${selectedParts.ram.gb}GB / SSD ${selectedParts.ssd.gb >= 1000 ? `${selectedParts.ssd.gb / 1000}TB` : `${selectedParts.ssd.gb}GB`}`,
+      physical: `피크 ${desktopAnalysis.estimatedWatt}W / 파워 ${selectedParts.psu.watt}W / ${selectedParts.caseItem.name.split(' ')[0]}`,
+      warningCount: desktopAnalysis.warnings.length,
+    };
+    setCompareItems((prev) => [...prev, newItem]);
+    showToast('현재 데스크톱 견적을 비교함에 담았습니다.');
+  };
+
+  // 비교함 추가 (랩탑)
+  const addLaptopToCompare = (laptop, evaluation) => {
+    if (compareItems.some((item) => item.uid === laptop.id)) {
+      showToast('이미 비교함에 담긴 노트북입니다.');
+      return;
     }
-    return `너는 시니어 소프트웨어 엔지니어야.\n[${subj}] 과목의 '${top}' 관련 코드를 작성하고 있는데, 아래 코드에서 논리적 오류나 시간복잡도 개선 포인트를 찾아 단계별로 설명해줘.\n\n[여기에 코드 붙여넣기]`;
-  };
-
-  const handleCopyPrompt = async () => {
-    try {
-      await navigator.clipboard.writeText(buildPrompt());
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      alert('클립보드 복사에 실패했습니다. 텍스트를 직접 복사해 주세요.');
+    if (compareItems.length >= 3) {
+      showToast('비교함은 최대 3개까지 담을 수 있습니다.');
+      return;
     }
+    const newItem = {
+      uid: laptop.id,
+      type: `노트북 (${laptop.os})`,
+      name: laptop.name,
+      price: laptop.price,
+      score: evaluation.score,
+      cpu: laptop.cpuSpec,
+      gpu: laptop.gpuSpec,
+      ramSsd: `RAM ${laptop.ramGb}GB / SSD ${laptop.ssdGb >= 1000 ? `${laptop.ssdGb / 1000}TB` : `${laptop.ssdGb}GB`}`,
+      physical: `${laptop.weightKg}kg / ${laptop.screenInch}인치 / 소음: ${laptop.noiseLevel}`,
+      warningCount: evaluation.warnings.length,
+    };
+    setCompareItems((prev) => [...prev, newItem]);
+    showToast(`${laptop.name} 모델을 비교함에 담았습니다.`);
   };
 
-  const handleResetAll = () => {
-    if (!window.confirm('시간표와 과제 목록을 초기 상태로 되돌릴까요?')) return;
-    setSchedule(DEFAULT_SCHEDULE);
-    setTodos(DEFAULT_TODOS);
+  const removeCompareItem = (uid) => {
+    setCompareItems((prev) => prev.filter((item) => item.uid !== uid));
   };
 
-  const todayLabel = new Date().toLocaleDateString('ko-KR', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'short',
-  });
+  const copyCompareTable = () => {
+    if (compareItems.length === 0) return;
+    const lines = [
+      `[SpecMatch 후보 비교표]`,
+      `기준 전공: ${currentMajor.label} / 게이밍: ${currentGaming.label}`,
+      `================================`,
+      ...compareItems.map(
+        (item, idx) =>
+          `${idx + 1}. [${item.type}] ${item.name}\n   - 가격: ${formatKRW(item.price)} | 적합도: ${item.score}점\n   - 주요 스펙: ${item.cpu} / ${item.gpu} / ${item.ramSsd}\n   - 전력·물리: ${item.physical}`
+      ),
+    ];
+    navigator.clipboard?.writeText(lines.join('\n'));
+    showToast('비교함 요약 텍스트가 복사되었습니다.');
+  };
+
+  // 1:1 견적 문의 모달 열기
+  const openConsultModal = (mode, specificLaptopName = '') => {
+    const template = buildInquiryTemplate({
+      mode,
+      majorId,
+      gamingId,
+      desktopSummary: mode === 'desktop' ? getDesktopSummaryText() : '',
+      laptopName: specificLaptopName,
+    });
+    setConsultText(template);
+    setConsultOpen(true);
+  };
+
+  // 랩탑 필터링 및 평가 리스트
+  const evaluatedLaptops = useMemo(() => {
+    return LAPTOP_LIST.filter((lap) => {
+      if (lap.price > maxBudget) return false;
+      if (osFilter !== 'ALL' && lap.os !== osFilter) return false;
+      return true;
+    })
+      .map((lap) => ({
+        laptop: lap,
+        evalResult: evaluateLaptop(lap, {
+          majorId,
+          gamingId,
+          maxWeight,
+          quietOnly,
+        }),
+      }))
+      .sort((a, b) => b.evalResult.score - a.evalResult.score);
+  }, [maxBudget, osFilter, majorId, gamingId, maxWeight, quietOnly]);
+
+  // 랩탑 물리적 트레이드오프 경고 조건
+  const showTradeoffNotice =
+    (majorId === 'game3d' ||
+      majorId === 'cad' ||
+      (currentGaming.minGpuTier && currentGaming.minGpuTier >= 2)) &&
+    (maxWeight <= 1.6 || quietOnly);
 
   return (
-    <div className="app-container">
-      <header className="app-header">
-        <h1>DSU AI learning planner</h1>
-        <div className="header-meta">
-          <span>{todayLabel}</span>
-          <span>브라우저 자동 저장 중</span>
-          <button type="button" className="btn-reset-all" onClick={handleResetAll}>
-            초기화
-          </button>
+    <div className="sm-container">
+      {/* 상단 헤더 */}
+      <header className="sm-header">
+        <div className="sm-brand">
+          <h1>SpecMatch</h1>
+          <span className="sm-subtitle">동서대 전공 · 게이밍 PC 견적 및 랩탑 비교기</span>
         </div>
+        <button
+          type="button"
+          className="sm-btn sm-btn-primary"
+          onClick={() => openConsultModal(activeTab === 'laptop' ? 'laptop' : 'desktop')}
+        >
+          1:1 퍼스널 견적 문의
+        </button>
       </header>
 
-      <main className="main-grid">
-        {/* 좌측 영역: 주간 시간표 + AI 프롬프트 빌더 */}
-        <div className="left-col">
-          <section className="panel">
-            <div className="panel-header">
-              <h2>주간 학습 시간표</h2>
-              <span className="panel-sub">칸을 클릭해 바로 수정 (자동 저장)</span>
-            </div>
-            <div className="panel-body schedule-wrap">
-              <table className="schedule-table">
-                <thead>
-                  <tr>
-                    <th className="slot-col">구분</th>
-                    {DAYS.map((day) => (
-                      <th key={day}>{day}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {SLOTS.map((slot) => (
-                    <tr key={slot}>
-                      <td className="slot-label">{slot}</td>
-                      {DAYS.map((day) => {
-                        const key = `${slot}-${day}`;
-                        return (
-                          <td key={key}>
-                            <textarea
-                              className="schedule-cell"
-                              value={schedule[key] || ''}
-                              onChange={(e) =>
-                                handleScheduleChange(slot, day, e.target.value)
-                              }
-                            />
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+      {/* 토스트 알림 */}
+      {statusMsg && <div className="sm-toast">{statusMsg}</div>}
 
-          <section className="panel">
-            <div className="panel-header">
-              <h2>AI 학습 프롬프트 빌더</h2>
-              <span className="panel-sub">ChatGPT / Gemini 질문용 원클릭 복사</span>
-            </div>
-            <div className="panel-body">
-              <div className="prompt-form">
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder="과목명 (예: 자료구조)"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                />
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder="학습 주제 또는 질문 키워드"
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                />
-              </div>
-
-              <div className="mode-group">
-                <button
-                  type="button"
-                  className={`mode-btn ${promptMode === 'summary' ? 'active' : ''}`}
-                  onClick={() => setPromptMode('summary')}
-                >
-                  개념 핵심 요약
-                </button>
-                <button
-                  type="button"
-                  className={`mode-btn ${promptMode === 'quiz' ? 'active' : ''}`}
-                  onClick={() => setPromptMode('quiz')}
-                >
-                  예상 퀴즈 생성
-                </button>
-                <button
-                  type="button"
-                  className={`mode-btn ${promptMode === 'debug' ? 'active' : ''}`}
-                  onClick={() => setPromptMode('debug')}
-                >
-                  코드 디버깅
-                </button>
-              </div>
-
-              <textarea className="prompt-preview" readOnly value={buildPrompt()} />
-
-              <button type="button" className="btn-primary" onClick={handleCopyPrompt}>
-                {copied ? '클립보드에 복사되었습니다' : '프롬프트 복사하기'}
-              </button>
-            </div>
-          </section>
+      {/* 공통 조건 선택 패널 (전공 + 게이밍) */}
+      <section className="sm-condition-bar">
+        <div className="sm-field">
+          <label htmlFor="major-select">1. 동서대학교 전공 프로필 선택</label>
+          <select
+            id="major-select"
+            value={majorId}
+            onChange={(e) => setMajorId(e.target.value)}
+          >
+            {MAJOR_PROFILES.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <div className="sm-meta-line">
+            <strong>해당 학과:</strong> {currentMajor.departments.join(' · ')}
+          </div>
+          <div className="sm-meta-line">
+            <strong>주요 툴:</strong> {currentMajor.tools}
+          </div>
         </div>
 
-        {/* 우측 영역: 집중 타이머 + 과제 D-Day */}
-        <div className="right-col">
-          <section className="panel">
-            <div className="panel-header">
-              <h2>집중 타이머</h2>
-              <span className="panel-sub">{timerModeMin}분 세션</span>
-            </div>
-            <div className="panel-body">
-              <div className="timer-display">{formatTime(secondsLeft)}</div>
-              <div className="timer-controls">
+        <div className="sm-field">
+          <label htmlFor="gaming-select">2. 게이밍 병행 목표 선택</label>
+          <select
+            id="gaming-select"
+            value={gamingId}
+            onChange={(e) => setGamingId(e.target.value)}
+          >
+            {GAMING_PRESETS.map((g) => (
+              <option key={g.id} value={g.id}>
+                [{g.group}] {g.label}
+              </option>
+            ))}
+          </select>
+          <div className="sm-meta-line">
+            <strong>안내:</strong> {currentGaming.note}
+          </div>
+          {currentGaming.isInquiryOnly && (
+            <button
+              type="button"
+              className="sm-btn sm-btn-accent sm-mt-6"
+              onClick={() => openConsultModal('desktop')}
+            >
+              커스텀 / 목록 외 사양 1:1 문의하기
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* 메인 탭 네비게이션 */}
+      <nav className="sm-tabs">
+        <button
+          type="button"
+          className={`sm-tab ${activeTab === 'desktop' ? 'active' : ''}`}
+          onClick={() => setActiveTab('desktop')}
+        >
+          조립 데스크톱 견적 계산기
+        </button>
+        <button
+          type="button"
+          className={`sm-tab ${activeTab === 'laptop' ? 'active' : ''}`}
+          onClick={() => setActiveTab('laptop')}
+        >
+          노트북 (랩탑) 스펙 · 물리 지표 비교
+        </button>
+        <button
+          type="button"
+          className={`sm-tab ${activeTab === 'compare' ? 'active' : ''}`}
+          onClick={() => setActiveTab('compare')}
+        >
+          비교함 ({compareItems.length}/3)
+        </button>
+      </nav>
+
+      {/* ==================== TAB 1: 데스크톱 견적 ==================== */}
+      {activeTab === 'desktop' && (
+        <main className="sm-desktop-grid">
+          <div className="sm-panel">
+            <div className="sm-panel-head">
+              <h2>부품 구성 및 단가 설정 (AM5 / DDR5)</h2>
+              <div className="sm-btn-group">
                 <button
                   type="button"
-                  className="btn-primary"
-                  onClick={() => setIsRunning((prev) => !prev)}
+                  className="sm-btn sm-btn-accent"
+                  onClick={applyRecommendedPreset}
                 >
-                  {isRunning ? '일시정지' : '시작'}
+                  조건 맞춤 프리셋 불러오기
                 </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => handleSetTimerPreset(timerModeMin)}
-                >
-                  리셋
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => handleSetTimerPreset(25)}
-                >
-                  25분
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => handleSetTimerPreset(50)}
-                >
-                  50분
-                </button>
+                {Object.keys(customPrices).length > 0 && (
+                  <button
+                    type="button"
+                    className="sm-btn"
+                    onClick={resetCustomPrices}
+                  >
+                    단가 초기화
+                  </button>
+                )}
               </div>
             </div>
-          </section>
 
-          <section className="panel">
-            <div className="panel-header">
-              <h2>과제 · 시험 D-Day</h2>
-              <span className="panel-sub">
-                완료 {todos.filter((t) => t.done).length} / {todos.length}
-              </span>
-            </div>
-            <div className="panel-body">
-              <form className="todo-form" onSubmit={handleAddTodo}>
-                <input
-                  type="text"
-                  className="input-field input-title"
-                  placeholder="과제 또는 시험 일정 입력"
-                  value={todoTitle}
-                  onChange={(e) => setTodoTitle(e.target.value)}
-                />
-                <input
-                  type="date"
-                  className="input-field input-date"
-                  value={todoDate}
-                  onChange={(e) => setTodoDate(e.target.value)}
-                />
-                <button type="submit" className="btn-primary">
-                  추가
-                </button>
-              </form>
+            <div className="sm-notice-strip">{PRICE_NOTICE}</div>
 
-              {todos.length === 0 ? (
-                <div className="empty-msg">등록된 일정이 없습니다.</div>
-              ) : (
-                <ul className="todo-list">
-                  {todos.map((item) => {
-                    const dday = getDDayInfo(item.dueDate);
-                    return (
-                      <li key={item.id} className="todo-item">
-                        <label className="todo-left">
+            <table className="sm-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '16%' }}>분류</th>
+                  <th style={{ width: '58%' }}>규격 및 모델 등급 선택</th>
+                  <th style={{ width: '26%' }}>예상 단가 (직접 수정)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {PART_ROWS.map((row) => {
+                  const list = DESKTOP_PARTS[row.key];
+                  const selectedObj =
+                    row.key === 'case' ? selectedParts.caseItem : selectedParts[row.key];
+                  const displayPrice =
+                    customPrices[row.key] !== undefined
+                      ? customPrices[row.key]
+                      : selectedObj.price;
+
+                  return (
+                    <tr key={row.key}>
+                      <td className="sm-cell-label">{row.label}</td>
+                      <td>
+                        <select
+                          className="sm-select-full"
+                          value={selectedIds[row.key]}
+                          onChange={(e) => handlePartChange(row.key, e.target.value)}
+                        >
+                          {list.map((part) => (
+                            <option key={part.id} value={part.id}>
+                              {part.name} ({formatKRW(part.price)})
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <div className="sm-price-input-wrap">
                           <input
-                            type="checkbox"
-                            checked={item.done}
-                            onChange={() => handleToggleTodo(item.id)}
+                            type="text"
+                            inputMode="numeric"
+                            value={displayPrice}
+                            onChange={(e) =>
+                              handleCustomPriceChange(row.key, e.target.value)
+                            }
+                            aria-label={`${row.label} 단가`}
                           />
-                          <span className={`todo-text ${item.done ? 'done' : ''}`}>
-                            {item.title}
-                          </span>
-                        </label>
-                        <div className="todo-right">
-                          <span className={dday.className}>{dday.label}</span>
-                          <button
-                            type="button"
-                            className="btn-del"
-                            onClick={() => handleDeleteTodo(item.id)}
-                          >
-                            삭제
-                          </button>
+                          <span>원</span>
                         </div>
-                      </li>
-                    );
-                  })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 우측 진단 리포트 패널 */}
+          <aside className="sm-panel sm-summary-panel">
+            <div className="sm-panel-head">
+              <h2>실시간 견적 진단 리포트</h2>
+            </div>
+
+            <div className="sm-kpi-grid">
+              <div className="sm-kpi-box">
+                <span className="sm-kpi-label">총 예상 금액</span>
+                <strong className="sm-kpi-val">
+                  {formatKRW(desktopAnalysis.totalPrice)}
+                </strong>
+              </div>
+              <div className="sm-kpi-box">
+                <span className="sm-kpi-label">목적 적합도</span>
+                <strong className="sm-kpi-val">{desktopAnalysis.score} / 100</strong>
+              </div>
+              <div className="sm-kpi-box">
+                <span className="sm-kpi-label">예상 피크 전력</span>
+                <strong className="sm-kpi-val">
+                  {desktopAnalysis.estimatedWatt}W / {selectedParts.psu.watt}W
+                </strong>
+              </div>
+            </div>
+
+            {/* 경고 목록 */}
+            <div className="sm-diag-block">
+              <h3>호환성 · 병목 경고 ({desktopAnalysis.warnings.length})</h3>
+              {desktopAnalysis.warnings.length === 0 ? (
+                <p className="sm-ok-text">
+                  현재 선택한 전공·게이밍 조건에서 심각한 호환성 및 병목 경고가 없습니다.
+                </p>
+              ) : (
+                <ul className="sm-alert-list warning">
+                  {desktopAnalysis.warnings.map((w, idx) => (
+                    <li key={idx}>{w}</li>
+                  ))}
                 </ul>
               )}
             </div>
-          </section>
+
+            {/* 팁 목록 */}
+            <div className="sm-diag-block">
+              <h3>세부 가이드</h3>
+              <ul className="sm-alert-list tip">
+                {desktopAnalysis.tips.map((t, idx) => (
+                  <li key={idx}>{t}</li>
+                ))}
+              </ul>
+            </div>
+
+            {/* 액션 버튼 */}
+            <div className="sm-action-stack">
+              <button
+                type="button"
+                className="sm-btn sm-btn-primary"
+                onClick={addDesktopToCompare}
+              >
+                현재 견적 비교함에 담기
+              </button>
+              <button type="button" className="sm-btn" onClick={copyDesktopSpec}>
+                견적서 텍스트 복사
+              </button>
+              <button
+                type="button"
+                className="sm-btn sm-btn-consult"
+                onClick={() => openConsultModal('desktop')}
+              >
+                {CONSULTATION_CONFIG.buttonLabel}
+              </button>
+            </div>
+          </aside>
+        </main>
+      )}
+
+      {/* ==================== TAB 2: 랩탑 비교 ==================== */}
+      {activeTab === 'laptop' && (
+        <main className="sm-panel">
+          <div className="sm-panel-head">
+            <h2>노트북(랩탑) 필터 및 물리 지표 분석</h2>
+            <span className="sm-count-badge">검색 결과 {evaluatedLaptops.length}건</span>
+          </div>
+
+          <div className="sm-filter-bar">
+            <div className="sm-filter-item">
+              <label htmlFor="budget-range">
+                최대 예산: <strong>{formatKRW(maxBudget)}</strong>
+              </label>
+              <input
+                id="budget-range"
+                type="range"
+                min="1200000"
+                max="3500000"
+                step="100000"
+                value={maxBudget}
+                onChange={(e) => setMaxBudget(Number(e.target.value))}
+              />
+            </div>
+
+            <div className="sm-filter-item">
+              <label htmlFor="weight-select">무게 상한 기준 (휴대성)</label>
+              <select
+                id="weight-select"
+                value={maxWeight}
+                onChange={(e) => setMaxWeight(Number(e.target.value))}
+              >
+                <option value={1.4}>1.4kg 이하 (매일 통학 초경량)</option>
+                <option value={1.6}>1.6kg 이하 (표준 휴대)</option>
+                <option value={2.0}>2.0kg 이하 (가끔 휴대)</option>
+                <option value={2.5}>2.5kg 이하 (거치형 포함 전체)</option>
+              </select>
+            </div>
+
+            <div className="sm-filter-item">
+              <label htmlFor="os-select">운영체제 (OS)</label>
+              <select
+                id="os-select"
+                value={osFilter}
+                onChange={(e) => setOsFilter(e.target.value)}
+              >
+                <option value="ALL">전체 (Windows + macOS)</option>
+                <option value="Windows">Windows 전용</option>
+                <option value="macOS">macOS (맥북)</option>
+              </select>
+            </div>
+
+            <div className="sm-filter-item sm-checkbox-item">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={quietOnly}
+                  onChange={(e) => setQuietOnly(e.target.checked)}
+                />
+                도서관 · 강의실 정숙성(저소음) 우선
+              </label>
+            </div>
+          </div>
+
+          {showTradeoffNotice && (
+            <div className="sm-tradeoff-box">
+              <strong>물리적 한계 안내:</strong> 고사양 작업(3D·CAD·외장 GPU 게이밍)과
+              초경량·저소음을 동시에 충족하는 노트북은 발열 제어 한계로 가격이 230만 원
+              이상 급등합니다. 예산이 한정적이라면 데스크톱 본체와 가성비 사무용 노트북으로
+              이원화하는 구성을 권장합니다.
+            </div>
+          )}
+
+          <div className="sm-laptop-list">
+            {evaluatedLaptops.map(({ laptop, evalResult }) => (
+              <article key={laptop.id} className="sm-laptop-row">
+                <div className="sm-laptop-main">
+                  <div className="sm-laptop-title-line">
+                    <span className="sm-os-tag">{laptop.os}</span>
+                    <h3>{laptop.name}</h3>
+                    <span className="sm-score-pill">전공 적합도 {evalResult.score}점</span>
+                  </div>
+                  <p className="sm-laptop-note">{laptop.note}</p>
+
+                  <div className="sm-spec-grid">
+                    <div>
+                      <strong>CPU/GPU:</strong> {laptop.cpuSpec} / {laptop.gpuSpec}
+                    </div>
+                    <div>
+                      <strong>RAM/SSD:</strong> {laptop.ramGb}GB /{' '}
+                      {laptop.ssdGb >= 1000
+                        ? `${laptop.ssdGb / 1000}TB`
+                        : `${laptop.ssdGb}GB`}
+                    </div>
+                    <div>
+                      <strong>디스플레이:</strong> {laptop.display}
+                    </div>
+                  </div>
+
+                  {/* 물리 지표 3요소: 무게 / 공간 / 소음 */}
+                  <div className="sm-physical-strip">
+                    <span>
+                      <strong>무게:</strong> {laptop.weightKg}kg (
+                      {laptop.usbCPd ? 'USB-C PD 지원' : '전용 어댑터'})
+                    </span>
+                    <span>
+                      <strong>공간:</strong> {laptop.screenInch}인치 · {laptop.spaceFit}
+                    </span>
+                    <span>
+                      <strong>소음:</strong> {laptop.noiseLevel}
+                    </span>
+                  </div>
+
+                  {evalResult.warnings.length > 0 && (
+                    <ul className="sm-alert-list warning sm-mt-6">
+                      {evalResult.warnings.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="sm-laptop-side">
+                  <div className="sm-laptop-price">{formatKRW(laptop.price)}</div>
+                  <div className="sm-tag-row">
+                    {evalResult.badges.map((b, i) => (
+                      <span key={i} className="sm-mini-tag">
+                        {b}
+                      </span>
+                    ))}
+                    {laptop.tags.map((t, i) => (
+                      <span key={i} className="sm-mini-tag">
+                        #{t}
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="sm-btn sm-btn-primary"
+                    onClick={() => addLaptopToCompare(laptop, evalResult)}
+                  >
+                    비교함에 담기
+                  </button>
+                  <button
+                    type="button"
+                    className="sm-btn"
+                    onClick={() => openConsultModal('laptop', laptop.name)}
+                  >
+                    이 모델로 1:1 문의
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </main>
+      )}
+
+      {/* ==================== TAB 3: 비교함 ==================== */}
+      {activeTab === 'compare' && (
+        <main className="sm-panel">
+          <div className="sm-panel-head">
+            <h2>견적 · 랩탑 통합 비교함 ({compareItems.length}/3)</h2>
+            <div className="sm-btn-group">
+              <button
+                type="button"
+                className="sm-btn sm-btn-primary"
+                disabled={compareItems.length === 0}
+                onClick={copyCompareTable}
+              >
+                비교 요약 텍스트 복사
+              </button>
+              <button
+                type="button"
+                className="sm-btn"
+                disabled={compareItems.length === 0}
+                onClick={() => setCompareItems([])}
+              >
+                비교함 비우기
+              </button>
+            </div>
+          </div>
+
+          {compareItems.length === 0 ? (
+            <div className="sm-empty-box">
+              아직 비교함에 담긴 항목이 없습니다. 데스크톱 견적 계산기나 노트북 탭에서
+              후보를 최대 3개까지 담아 나란히 비교해 보세요.
+            </div>
+          ) : (
+            <table className="sm-table sm-compare-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '16%' }}>비교 항목</th>
+                  {compareItems.map((item) => (
+                    <th key={item.uid}>
+                      <div className="sm-compare-col-head">
+                        <span>{item.name}</span>
+                        <button
+                          type="button"
+                          className="sm-btn-del"
+                          onClick={() => removeCompareItem(item.uid)}
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="sm-cell-label">유형</td>
+                  {compareItems.map((item) => (
+                    <td key={item.uid}>{item.type}</td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="sm-cell-label">예상 가격</td>
+                  {compareItems.map((item) => (
+                    <td key={item.uid}>
+                      <strong>{formatKRW(item.price)}</strong>
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="sm-cell-label">전공·목적 적합도</td>
+                  {compareItems.map((item) => (
+                    <td key={item.uid}>
+                      <strong>{item.score}점</strong> / 100
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="sm-cell-label">CPU</td>
+                  {compareItems.map((item) => (
+                    <td key={item.uid}>{item.cpu}</td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="sm-cell-label">GPU</td>
+                  {compareItems.map((item) => (
+                    <td key={item.uid}>{item.gpu}</td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="sm-cell-label">RAM / SSD</td>
+                  {compareItems.map((item) => (
+                    <td key={item.uid}>{item.ramSsd}</td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="sm-cell-label">전력 · 물리 지표</td>
+                  {compareItems.map((item) => (
+                    <td key={item.uid}>{item.physical}</td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="sm-cell-label">주의 경고 수</td>
+                  {compareItems.map((item) => (
+                    <td key={item.uid}>
+                      {item.warningCount === 0
+                        ? '경고 없음'
+                        : `주의 ${item.warningCount}건`}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </main>
+      )}
+
+      {/* 하단 푸터 */}
+      <footer className="sm-footer">
+        <div>SpecMatch · 동서대학교 학부생용 PC/랩탑 견적 비교 도구</div>
+        <button
+          type="button"
+          className="sm-link-btn"
+          onClick={() => openConsultModal(activeTab === 'laptop' ? 'laptop' : 'desktop')}
+        >
+          {CONSULTATION_CONFIG.buttonLabel} 
+        </button>
+      </footer>
+
+      {/* ==================== 1:1 견적 문의 모달 ==================== */}
+      {consultOpen && (
+        <div className="sm-modal-backdrop" onClick={() => setConsultOpen(false)}>
+          <div className="sm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="sm-panel-head">
+              <h2>{CONSULTATION_CONFIG.buttonLabel}</h2>
+              <button
+                type="button"
+                className="sm-btn"
+                onClick={() => setConsultOpen(false)}
+              >
+                닫기
+              </button>
+            </div>
+
+            <p className="sm-modal-desc">{CONSULTATION_CONFIG.subNotice}</p>
+
+            <label className="sm-modal-label" htmlFor="consult-textarea">
+              자동 생성된 문의 템플릿 (복사 후 문의 링크에 붙여넣으세요)
+            </label>
+            <textarea
+              id="consult-textarea"
+              className="sm-textarea"
+              rows={9}
+              value={consultText}
+              onChange={(e) => setConsultText(e.target.value)}
+            />
+
+            <div className="sm-modal-actions">
+              <span className="sm-inline-note">※ 답변에 다소 시간이 걸릴 수 있음</span>
+              <button
+                type="button"
+                className="sm-btn"
+                onClick={() => {
+                  navigator.clipboard?.writeText(consultText);
+                  showToast('문의 템플릿이 복사되었습니다.');
+                }}
+              >
+                문의 내용 복사
+              </button>
+              <a
+                href={CONSULTATION_CONFIG.contactUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="sm-btn sm-btn-primary sm-anchor-btn"
+              >
+                문의 페이지로 이동 ↗
+              </a>
+            </div>
+          </div>
         </div>
-      </main>
+      )}
     </div>
   );
 }
